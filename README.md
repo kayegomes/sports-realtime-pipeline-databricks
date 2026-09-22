@@ -8,7 +8,7 @@ O pipeline ingere eventos de partida — gols, cartoes, substituicoes,
 finalizacoes e audiencia — e entrega KPIs atualizados a cada poucos segundos
 em tabelas Delta consultaveis pelo Databricks SQL.
 
-[![CI](https://github.com/<seu-usuario>/sports-realtime-pipeline-databricks/actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
+[![CI](https://github.com/kayegomes/sports-realtime-pipeline-databricks/actions/workflows/ci.yml/badge.svg)](https://github.com/kayegomes/sports-realtime-pipeline-databricks/actions/workflows/ci.yml)
 
 ---
 
@@ -267,7 +267,7 @@ sports-realtime-pipeline-databricks/
 ### Instalacao
 
 ```bash
-git clone https://github.com/<seu-usuario>/sports-realtime-pipeline-databricks.git
+git clone https://github.com/kayegomes/sports-realtime-pipeline-databricks.git
 cd sports-realtime-pipeline-databricks
 
 python -m venv .venv
