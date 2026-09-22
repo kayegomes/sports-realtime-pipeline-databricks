@@ -1,0 +1,28 @@
+# ---------------------------------------------------------------------------
+# Runtime
+# ---------------------------------------------------------------------------
+# Versoes alinhadas ao Databricks Runtime 14.3 LTS (Spark 3.5.0 + Delta 3.1).
+# Para DBR 13.3 LTS use: pyspark==3.4.1 e delta-spark==2.4.0.
+pyspark==3.5.1
+delta-spark==3.1.0
+
+# Geracao de dados sinteticos (nomes de jogadores).
+Faker==25.2.0
+
+# ---------------------------------------------------------------------------
+# Testes e qualidade de codigo
+# ---------------------------------------------------------------------------
+pytest==8.2.2
+pytest-cov==5.0.0
+# Comparacao de DataFrames Spark nos testes.
+chispa==0.10.1
+ruff==0.4.8
+
+# ---------------------------------------------------------------------------
+# Data Quality (opcional)
+# ---------------------------------------------------------------------------
+# As regras de qualidade deste projeto sao implementadas em PySpark puro
+# (`src/utils/quality_checks.py`) para funcionarem dentro de queries de
+# streaming. Descomente abaixo se quiser gerar relatorios em batch:
+# great-expectations==0.18.19
+# pydeequ==1.4.0

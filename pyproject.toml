@@ -1,0 +1,29 @@
+[project]
+name = "sports-realtime-pipeline-databricks"
+version = "0.1.0"
+description = "Pipeline de eventos esportivos em tempo real com PySpark, Delta Lake e arquitetura Medallion."
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --strict-markers"
+# O Py4J e verboso demais durante os testes.
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "W"]
+# `foreachBatch` exige a assinatura (df, batch_id) mesmo quando o id nao e usado.
+ignore = ["B008"]
+
+[tool.ruff.lint.per-file-ignores]
+# Notebooks Databricks usam `spark`, `display` e `dbutils` injetados pelo runtime.
+"notebooks/*" = ["F821", "E402"]
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["*/__init__.py"]
