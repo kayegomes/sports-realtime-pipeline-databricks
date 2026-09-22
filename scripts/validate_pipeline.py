@@ -7,6 +7,9 @@ Confere que as tres camadas produziram dados coerentes:
 * a Silver tem apenas eventos validos e padronizados;
 * a Gold materializou os tres KPIs.
 
+Tudo e lido das tabelas Delta em disco: este script nao acessa nenhuma API
+externa, nao precisa de credencial e roda offline.
+
 Cada verificacao carrega os numeros que a embasam. Dentro do GitHub Actions,
 as falhas viram *annotations* (`::error::`) e um resumo em Markdown e escrito
 no `$GITHUB_STEP_SUMMARY`, entao da para diagnosticar a falha direto na tela
@@ -19,10 +22,13 @@ from __future__ import annotations
 
 import os
 import sys
+import traceback
 
+from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 
 from src import config
+from src.bronze.ingest_bronze import raw_event_schema
 from src.utils.spark_session import configure_logging, get_spark
 
 #: True quando rodando dentro do GitHub Actions.
@@ -53,6 +59,58 @@ def check(description: str, condition: bool, detail: str = "") -> None:
         print(f"::error title={_escape(description)}::{_escape(detail or 'condicao falsa')}", flush=True)
 
 
+def _count_delta(spark: SparkSession, path: str) -> int:
+    """Conta as linhas de uma tabela Delta, ou -1 se ela nao existir."""
+    try:
+        return spark.read.format("delta").load(path).count()
+    except Exception:  # noqa: BLE001 - tabela ausente e um resultado valido aqui
+        return -1
+
+
+def _count_source_files(spark: SparkSession) -> int:
+    """Conta os eventos na origem (arquivos JSON), ou -1 se a pasta nao existir."""
+    try:
+        return spark.read.schema(raw_event_schema()).json(config.STREAMING_PATH).count()
+    except Exception:  # noqa: BLE001
+        return -1
+
+
+def report_layer_counts(spark: SparkSession) -> dict[str, int]:
+    """Conta e imprime o volume de registros de cada camada.
+
+    E a primeira coisa que se quer olhar quando algo da errado: mostra em que
+    ponto do pipeline o dado parou de fluir.
+    """
+    counts = {
+        "Origem (JSON)": _count_source_files(spark),
+        "Bronze / events": _count_delta(spark, config.BRONZE_PATH),
+        "Silver / events_clean": _count_delta(spark, config.SILVER_PATH),
+        "Silver / events_quarantine": _count_delta(spark, config.SILVER_QUARANTINE_PATH),
+        "Gold / audience_by_window": _count_delta(spark, config.GOLD_AUDIENCE_PATH),
+        "Gold / player_events": _count_delta(spark, config.GOLD_PLAYER_EVENTS_PATH),
+        "Gold / top_players": _count_delta(spark, config.GOLD_TOP_PLAYERS_PATH),
+        "Gold / goals_by_team": _count_delta(spark, config.GOLD_TEAM_GOALS_PATH),
+    }
+
+    largura = max(len(nome) for nome in counts)
+    print("\n" + "=" * (largura + 14))
+    print("REGISTROS POR CAMADA")
+    print("=" * (largura + 14))
+    for nome, total in counts.items():
+        valor = "ausente" if total < 0 else f"{total:,}".replace(",", ".")
+        print(f"  {nome.ljust(largura)}  {valor:>10}")
+    print("=" * (largura + 14) + "\n", flush=True)
+
+    summary_path = os.getenv("GITHUB_STEP_SUMMARY")
+    if summary_path:
+        linhas = ["## Registros por camada", "", "| Camada | Registros |", "|---|---:|"]
+        linhas += [f"| {nome} | {'ausente' if total < 0 else total} |" for nome, total in counts.items()]
+        with open(summary_path, "a", encoding="utf-8") as handle:
+            handle.write("\n".join(linhas) + "\n\n")
+
+    return counts
+
+
 def write_summary() -> None:
     """Escreve o resumo em Markdown no painel do run (se houver)."""
     summary_path = os.getenv("GITHUB_STEP_SUMMARY")
@@ -72,9 +130,37 @@ def main() -> int:
     configure_logging()
     spark = get_spark("pipeline-validation")
 
+    # Panorama antes das assercoes: mostra de imediato em que ponto do
+    # pipeline o dado eventualmente parou de fluir.
+    counts = report_layer_counts(spark)
+
+    origem = counts["Origem (JSON)"]
+    if origem >= 0:
+        check(
+            "Bronze ingeriu todos os eventos da origem",
+            counts["Bronze / events"] >= origem,
+            f"origem={origem} bronze={counts['Bronze / events']}",
+        )
+
+    clean, quarentena, bronze_total = (
+        counts["Silver / events_clean"],
+        counts["Silver / events_quarantine"],
+        counts["Bronze / events"],
+    )
+    if min(clean, quarentena, bronze_total) >= 0:
+        # A Silver so pode encolher em relacao a Bronze, e apenas por
+        # deduplicacao: todo evento rejeitado vai para a quarentena, nenhum
+        # e descartado em silencio.
+        check(
+            "Silver nao descarta eventos fora da deduplicacao",
+            clean + quarentena <= bronze_total,
+            f"clean={clean} + quarentena={quarentena} <= bronze={bronze_total} "
+            f"(duplicatas removidas: {bronze_total - clean - quarentena})",
+        )
+
     # --- Bronze -----------------------------------------------------------
     bronze = spark.read.format("delta").load(config.BRONZE_PATH)
-    bronze_count = bronze.count()
+    bronze_count = counts["Bronze / events"]
     check("Bronze contem eventos", bronze_count > 0, f"{bronze_count} linhas")
 
     sem_metadado = bronze.filter(F.col("ingestion_timestamp").isNull()).count()
@@ -175,4 +261,14 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception:
+        # Sem isto, uma excecao (tabela ausente, schema inesperado) aparece no
+        # CI apenas como "exit code 1". Emitir o traceback como annotation faz
+        # a causa raiz aparecer na tela do run.
+        detalhe = traceback.format_exc()
+        print(detalhe, file=sys.stderr, flush=True)
+        if IN_CI:
+            print(f"::error title=Excecao na validacao::{_escape(detalhe)}", flush=True)
+        sys.exit(1)

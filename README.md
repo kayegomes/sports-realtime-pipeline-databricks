@@ -14,6 +14,7 @@ em tabelas Delta consultaveis pelo Databricks SQL.
 
 ## Sumario
 
+- [Dados simulados, sem dependencia externa](#dados-simulados-sem-dependencia-externa)
 - [Arquitetura](#arquitetura)
 - [O que cada camada faz](#o-que-cada-camada-faz)
 - [Decisoes tecnicas](#decisoes-tecnicas)
@@ -24,6 +25,36 @@ em tabelas Delta consultaveis pelo Databricks SQL.
 - [Testes](#testes)
 - [CI/CD](#cicd)
 - [Proximos passos](#proximos-passos)
+
+---
+
+## Dados simulados, sem dependencia externa
+
+**Este projeto nao consome nenhuma API de terceiros.** Os eventos sao
+gerados pelo proprio repositorio (`src/generator/event_generator.py`), que
+usa o Faker para produzir nomes de jogadores e escreve arquivos JSON Lines
+em uma pasta monitorada — o papel que um topico Kafka teria em producao.
+
+Consequencias praticas:
+
+- **Nao ha chave de API, token ou credencial** para configurar. Clonou,
+  instalou as dependencias, rodou.
+- **Nao ha limite de requisicao nem cota** para estourar, e o pipeline nao
+  quebra porque um servico de terceiros saiu do ar.
+- **Os testes e o CI sao deterministicos**: o gerador aceita `--seed`, entao
+  a mesma semente produz a mesma sequencia de partidas e eventos.
+- **O volume e o comportamento sao controlaveis**: `--matches`,
+  `--events-per-tick` e `--dirty-rate` ajustam carga e qualidade do dado de
+  entrada, o que seria impossivel com uma fonte real.
+
+A unica atividade de rede do projeto acontece na primeira execucao local,
+quando o `delta-spark` baixa o jar do Delta Lake do Maven Central — depois
+disso ele fica em cache e tudo roda offline. No Databricks, nem isso: o
+Delta ja vem no runtime.
+
+Trocar por uma fonte real e um ajuste localizado: apenas `read_raw_stream`
+em `src/bronze/ingest_bronze.py` muda de `.format("json")` para
+`.format("kafka")`. Silver e Gold nao sabem de onde o dado veio.
 
 ---
 
@@ -305,6 +336,25 @@ python -m src.gold.aggregate_gold --once
 
 # Confere o resultado das tres camadas
 python scripts/validate_pipeline.py
+```
+
+O `validate_pipeline.py` le apenas as tabelas Delta em disco (nenhuma chamada
+externa) e comeca imprimindo a contagem de registros de cada camada, o que
+mostra de imediato onde o dado parou de fluir:
+
+```
+==========================================
+REGISTROS POR CAMADA
+==========================================
+  Origem (JSON)                       120
+  Bronze / events                     120
+  Silver / events_clean               101
+  Silver / events_quarantine           11
+  Gold / audience_by_window             2
+  Gold / player_events                 34
+  Gold / top_players                    6
+  Gold / goals_by_team                  4
+==========================================
 ```
 
 ### Opcoes do gerador

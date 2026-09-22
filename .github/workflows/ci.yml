@@ -139,5 +139,20 @@ jobs:
       - name: Camada Gold
         run: python -m src.gold.aggregate_gold --once
 
+      # Em caso de falha, o fim da saida vira uma annotation: a causa fica
+      # visivel na tela do run, sem precisar abrir o log bruto.
       - name: Validar as tabelas Delta
-        run: python scripts/validate_pipeline.py
+        run: |
+          set -o pipefail
+          if ! python scripts/validate_pipeline.py 2>&1 | tee validation.log; then
+            echo "::error title=Saida da validacao::$(tail -n 40 validation.log | sed -z 's/\n/%0A/g')"
+            exit 1
+          fi
+
+      - name: Publicar o log da validacao
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-log
+          path: validation.log
+          if-no-files-found: ignore
