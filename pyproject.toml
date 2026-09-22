@@ -23,6 +23,8 @@ ignore = ["B008"]
 [tool.ruff.lint.per-file-ignores]
 # Notebooks Databricks usam `spark`, `display` e `dbutils` injetados pelo runtime.
 "notebooks/*" = ["F821", "E402"]
+# Scripts standalone ajustam o sys.path antes de importar o pacote `src`.
+"scripts/*" = ["E402"]
 
 [tool.coverage.run]
 source = ["src"]

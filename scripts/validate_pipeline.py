@@ -23,6 +23,13 @@ from __future__ import annotations
 import os
 import sys
 import traceback
+from pathlib import Path
+
+# Executar `python scripts/validate_pipeline.py` coloca `scripts/` no
+# sys.path, e nao a raiz do repositorio - sem esta linha, `import src` falha.
+# As camadas nao sofrem disso porque rodam como modulo (`python -m src...`),
+# o que ja poe o diretorio corrente no caminho de busca.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
